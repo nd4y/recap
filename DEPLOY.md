@@ -336,8 +336,12 @@ workflow — `deploy_workflows.py`; стек — `docker compose up -d` с но�
 
 Выключенный GPU-хост даёт `up{job="recap-asr"} = 0` — это норма, алерт на него не нужен.
 
-**Дашборд** — `grafana/recap.json`: Dashboards → New → Import, при импорте выбрать Prometheus-совместимый
-datasource. Три ряда: конвейер (реестр, тайминги, outbox, последний тик), сервис ASR, движок n8n.
+**Дашборды** — Dashboards → New → Import, при импорте выбрать Prometheus-совместимый datasource:
+
+- `grafana/recap.json` — конвейер: реестр, тайминги, outbox, последний тик, сервис ASR, сводка по n8n;
+- `grafana/n8n.json` — движок n8n как сервис: экзекьюшены по workflow и статусу, длительности, процесс
+  node.js (память, CPU, event loop, GC), контейнер по cAdvisor (ряд пуст, если cAdvisor не скрейпится).
+  Переменные `job` (скрейп-job n8n) и `container` (имя контейнера, дефолт `n8n`).
 
 **Алерты.** Переход файла в `failed` (битый файл или исчерпанные попытки) workflow сообщает в Telegram сам,
 без внешнего алертинга. По метрикам имеет смысл завести три правила в Grafana:

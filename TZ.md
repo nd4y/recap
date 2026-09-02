@@ -341,7 +341,7 @@ tags: [recording/call]
   - `/metrics` n8n на порту UI (`N8N_METRICS=true`): экзекьюшены по workflow, процесс node.js;
   - `recap-exporter` (второй сервис стека, порт `RECAP_EXPORTER_PORT`): реестр и outbox — `recap_registry_files{type,status}`, суммы и счётчики `recap_registry_{audio,asr,llm}_seconds`, `recap_registry_last_transition_timestamp_seconds{status}`, `recap_registry_updated_timestamp_seconds` (последний тик), `recap_outbox_files`, `recap_outbox_oldest_age_seconds`;
   - `/metrics` сервиса `recap-asr`: `recap_asr_requests_total{result}`, `recap_asr_audio_seconds_total`, `recap_asr_stage_seconds_total{stage}`, гистограмма `recap_asr_request_seconds`, `recap_asr_owner_total{result}`, `recap_asr_model_loaded{model}`, `recap_asr_inflight`.
-- Дашборд Grafana — `grafana/recap.json` (конвейер, ASR, n8n), datasource выбирается при импорте.
+- Дашборды Grafana — `grafana/recap.json` (конвейер, ASR, сводка n8n) и `grafana/n8n.json` (движок n8n: экзекьюшены, процесс node.js, контейнер по cAdvisor), datasource выбирается при импорте.
 - Алерты: переход файла в `failed` — сообщение в Telegram из самого workflow; по метрикам рекомендованы правила «тики остановились» (`time() - recap_registry_updated_timestamp_seconds > 900`) и «outbox не разгребается» (`recap_outbox_oldest_age_seconds > 1800`), см. DEPLOY.md.
 
 ## 10. Состав репозитория и развёртывание
@@ -352,7 +352,7 @@ tags: [recording/call]
 | `llm/` | `Modelfile` производной модели Ollama | GPU-хост |
 | `workflow/` | код нод n8n (`scan.js`, `build_prompt.js`, `save_note.js`, `mark_bad.js`, `prep_doc.js`, `finalize.js`) и скрипт деплоя | стек `n8n` |
 | `stack/` | compose стека n8n, экспортер метрик конвейера (`recap-exporter.py`), скрипт доставки outbox | NAS |
-| `grafana/` | дашборд `recap.json` для импорта в Grafana | Grafana |
+| `grafana/` | дашборды `recap.json` (конвейер) и `n8n.json` (движок) для импорта в Grafana | Grafana |
 
 Всё, что зависит от установки, вынесено в env-файлы с примерами: `stack/.env.example`, `stack/deliver-outbox.env.example`, `workflow/.n8n.env.example`. Заполненные копии gitignored.
 Пошаговая установка с нуля — [DEPLOY.md](DEPLOY.md).

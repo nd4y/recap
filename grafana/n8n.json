@@ -1,0 +1,285 @@
+{
+  "title": "n8n",
+  "uid": "n8n-engine",
+  "tags": ["n8n", "recap"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "time": {"from": "now-24h", "to": "now"},
+  "schemaVersion": 39,
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "type": "datasource",
+        "name": "DS_PROMETHEUS",
+        "label": "Datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "refresh": 1
+      },
+      {
+        "type": "query",
+        "name": "job",
+        "label": "job",
+        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+        "query": {"query": "label_values(n8n_version_info, job)", "refId": "var-job"},
+        "definition": "label_values(n8n_version_info, job)",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {"text": "All", "value": "$__all"},
+        "hide": 0
+      },
+      {
+        "type": "textbox",
+        "name": "container",
+        "label": "Контейнер (cAdvisor)",
+        "query": "n8n",
+        "current": {"text": "n8n", "value": "n8n"},
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {"type": "row", "title": "Обзор", "collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}, "id": 100, "panels": []},
+
+    {
+      "type": "stat", "id": 1, "title": "Версия",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 1},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "max by (version) (n8n_version_info{job=~\"$job\"})", "legendFormat": "{{version}}", "instant": true}],
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "text"}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "none", "graphMode": "none", "textMode": "name"}
+    },
+    {
+      "type": "stat", "id": 2, "title": "Активных workflow",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 1},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "max(n8n_active_workflow_count{job=~\"$job\"})", "instant": true}],
+      "fieldConfig": {"defaults": {"unit": "none", "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "value", "graphMode": "none", "textMode": "value"}
+    },
+    {
+      "type": "stat", "id": 3, "title": "Роль инстанса",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 1},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "max(n8n_instance_role_leader{job=~\"$job\"})", "instant": true}],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "follower", "color": "text"}, "1": {"text": "leader", "color": "green"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": null}]}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "value", "graphMode": "none", "textMode": "value"}
+    },
+    {
+      "type": "stat", "id": 4, "title": "Аптайм процесса",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 1},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "time() - max(n8n_process_start_time_seconds{job=~\"$job\"})", "instant": true}],
+      "fieldConfig": {"defaults": {"unit": "dtdurations", "decimals": 0, "color": {"mode": "fixed", "fixedColor": "text"}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "none", "graphMode": "none", "textMode": "value"}
+    },
+    {
+      "type": "stat", "id": 5, "title": "Экзекьюшенов за сутки",
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 1},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum(increase(n8n_workflow_started_total{job=~\"$job\"}[24h]))", "instant": true}],
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 0, "color": {"mode": "fixed", "fixedColor": "text"}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "none", "graphMode": "none", "textMode": "value"}
+    },
+    {
+      "type": "stat", "id": 6, "title": "Неуспешных за сутки",
+      "description": "Экзекьюшены со статусом, отличным от success (error, crashed, canceled).",
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 1},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum(increase(n8n_workflow_execution_duration_seconds_count{job=~\"$job\",status!=\"success\"}[24h])) or vector(0)", "instant": true}],
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "value", "graphMode": "none", "textMode": "value"}
+    },
+
+    {"type": "row", "title": "Экзекьюшены", "collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5}, "id": 101, "panels": []},
+
+    {
+      "type": "timeseries", "id": 10, "title": "Экзекьюшены в час, по workflow",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum by (workflow_name) (increase(n8n_workflow_started_total{job=~\"$job\"}[1h]))", "legendFormat": "{{workflow_name}}", "interval": "1h"}],
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1, "stacking": {"mode": "normal", "group": "A"}, "axisSoftMin": 0}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+    {
+      "type": "timeseries", "id": 11, "title": "Экзекьюшены в час, по статусу",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum by (status) (increase(n8n_workflow_execution_duration_seconds_count{job=~\"$job\"}[1h]))", "legendFormat": "{{status}}", "interval": "1h"}],
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1, "stacking": {"mode": "normal", "group": "A"}, "axisSoftMin": 0}}, "overrides": [
+        {"matcher": {"id": "byName", "options": "success"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]},
+        {"matcher": {"id": "byName", "options": "error"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
+        {"matcher": {"id": "byName", "options": "crashed"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "dark-red"}}]},
+        {"matcher": {"id": "byName", "options": "canceled"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "text"}}]}
+      ]},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+    {
+      "type": "timeseries", "id": 12, "title": "Длительность экзекьюшена, p50 / p95",
+      "description": "Логарифмическая шкала: пустой тик — доли секунды, тик с батчем файлов — минуты.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "histogram_quantile(0.5, sum by (le) (rate(n8n_workflow_execution_duration_seconds_bucket{job=~\"$job\"}[1h])))", "legendFormat": "p50"},
+        {"refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(n8n_workflow_execution_duration_seconds_bucket{job=~\"$job\"}[1h])))", "legendFormat": "p95"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 2, "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "spanNulls": true, "scaleDistribution": {"type": "log", "log": 10}}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+    {
+      "type": "timeseries", "id": 13, "title": "Средняя длительность в час, по workflow",
+      "description": "Гистограмма n8n несёт только workflow_id; имя подклеивается из счётчика n8n_workflow_started_total.",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "(sum by (workflow_id) (increase(n8n_workflow_execution_duration_seconds_sum{job=~\"$job\"}[1h])) / sum by (workflow_id) (increase(n8n_workflow_execution_duration_seconds_count{job=~\"$job\"}[1h]))) * on (workflow_id) group_left (workflow_name) (max by (workflow_id, workflow_name) (n8n_workflow_started_total{job=~\"$job\"}) * 0 + 1)", "legendFormat": "{{workflow_name}}"}],
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 1, "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "spanNulls": true, "axisSoftMin": 0}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+    {
+      "type": "timeseries", "id": 14, "title": "Выполнено нод в час, по workflow",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum by (workflow_name) (increase(n8n_node_finished_total{job=~\"$job\"}[1h]))", "legendFormat": "{{workflow_name}}", "interval": "1h"}],
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1, "stacking": {"mode": "normal", "group": "A"}, "axisSoftMin": 0}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+    {
+      "type": "timeseries", "id": 15, "title": "Кэш выражений: попадания и промахи в секунду",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(n8n_expression_code_cache_hit_total{job=~\"$job\"}[5m]))", "legendFormat": "hit"},
+        {"refId": "B", "expr": "sum(rate(n8n_expression_code_cache_miss_total{job=~\"$job\"}[5m]))", "legendFormat": "miss"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops", "decimals": 2, "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "spanNulls": true, "axisSoftMin": 0}}, "overrides": [
+        {"matcher": {"id": "byName", "options": "miss"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]}
+      ]},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+
+    {"type": "row", "title": "Процесс node.js", "collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 30}, "id": 102, "panels": []},
+
+    {
+      "type": "timeseries", "id": 20, "title": "Память процесса",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 31},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "max(n8n_process_resident_memory_bytes{job=~\"$job\"})", "legendFormat": "RSS"},
+        {"refId": "B", "expr": "max(n8n_nodejs_heap_size_total_bytes{job=~\"$job\"})", "legendFormat": "heap total"},
+        {"refId": "C", "expr": "max(n8n_nodejs_heap_size_used_bytes{job=~\"$job\"})", "legendFormat": "heap used"},
+        {"refId": "D", "expr": "max(n8n_nodejs_external_memory_bytes{job=~\"$job\"})", "legendFormat": "external"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "spanNulls": true, "axisSoftMin": 0}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+    {
+      "type": "timeseries", "id": 21, "title": "CPU процесса (1 = одно ядро)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 31},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "max(rate(n8n_process_cpu_user_seconds_total{job=~\"$job\"}[5m]))", "legendFormat": "user"},
+        {"refId": "B", "expr": "max(rate(n8n_process_cpu_system_seconds_total{job=~\"$job\"}[5m]))", "legendFormat": "system"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 2, "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 30, "stacking": {"mode": "normal", "group": "A"}, "spanNulls": true, "axisSoftMin": 0}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+    {
+      "type": "timeseries", "id": 22, "title": "Лаг event loop",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 39},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "max(n8n_nodejs_eventloop_lag_p50_seconds{job=~\"$job\"})", "legendFormat": "p50"},
+        {"refId": "B", "expr": "max(n8n_nodejs_eventloop_lag_p99_seconds{job=~\"$job\"})", "legendFormat": "p99"},
+        {"refId": "C", "expr": "max(n8n_nodejs_eventloop_lag_max_seconds{job=~\"$job\"})", "legendFormat": "max"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 3, "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "spanNulls": true, "axisSoftMin": 0}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+    {
+      "type": "timeseries", "id": 23, "title": "Сборка мусора: доля времени, по типу",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 39},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "sum by (kind) (rate(n8n_nodejs_gc_duration_seconds_sum{job=~\"$job\"}[5m]))", "legendFormat": "{{kind}}"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 3, "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 30, "stacking": {"mode": "normal", "group": "A"}, "spanNulls": true, "axisSoftMin": 0}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+    {
+      "type": "timeseries", "id": 24, "title": "Хендлы, запросы, дескрипторы",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 39},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "max(n8n_nodejs_active_handles_total{job=~\"$job\"})", "legendFormat": "active handles"},
+        {"refId": "B", "expr": "max(n8n_nodejs_active_requests_total{job=~\"$job\"})", "legendFormat": "active requests"},
+        {"refId": "C", "expr": "max(n8n_process_open_fds{job=~\"$job\"})", "legendFormat": "open fds"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 0, "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "spanNulls": true, "axisSoftMin": 0}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+
+    {"type": "row", "title": "Контейнер (cAdvisor; пусто, если cAdvisor не скрейпится)", "collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 47}, "id": 103, "panels": []},
+
+    {
+      "type": "timeseries", "id": 30, "title": "Память контейнера и лимит",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 48},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "max(container_memory_working_set_bytes{name=\"$container\"})", "legendFormat": "working set"},
+        {"refId": "B", "expr": "max(container_memory_rss{name=\"$container\"})", "legendFormat": "rss"},
+        {"refId": "C", "expr": "max(container_spec_memory_limit_bytes{name=\"$container\"} < 1e15)", "legendFormat": "лимит"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "spanNulls": true, "axisSoftMin": 0}}, "overrides": [
+        {"matcher": {"id": "byName", "options": "лимит"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}, {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [10, 10]}}, {"id": "custom.lineWidth", "value": 1}]}
+      ]},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+    {
+      "type": "timeseries", "id": 31, "title": "CPU контейнера (1 = одно ядро)",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 48},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "max(rate(container_cpu_usage_seconds_total{name=\"$container\"}[5m]))", "legendFormat": "cpu"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 2, "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "spanNulls": true, "axisSoftMin": 0}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": false}, "tooltip": {"mode": "single", "sort": "none"}}
+    },
+    {
+      "type": "timeseries", "id": 32, "title": "Сеть контейнера",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 48},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(container_network_receive_bytes_total{name=\"$container\"}[5m]))", "legendFormat": "rx"},
+        {"refId": "B", "expr": "sum(rate(container_network_transmit_bytes_total{name=\"$container\"}[5m]))", "legendFormat": "tx"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "spanNulls": true, "axisSoftMin": 0}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+    },
+    {
+      "type": "stat", "id": 33, "title": "Контейнер запущен",
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 56},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "time() - max(container_start_time_seconds{name=\"$container\"})", "instant": true}],
+      "fieldConfig": {"defaults": {"unit": "dtdurations", "decimals": 0, "color": {"mode": "fixed", "fixedColor": "text"}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "none", "graphMode": "none", "textMode": "value"}
+    },
+    {
+      "type": "stat", "id": 34, "title": "OOM-событий контейнера",
+      "gridPos": {"h": 4, "w": 8, "x": 8, "y": 56},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "max(container_oom_events_total{name=\"$container\"})", "instant": true}],
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "value", "graphMode": "none", "textMode": "value"}
+    },
+    {
+      "type": "stat", "id": 35, "title": "Память контейнера от лимита",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 56},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"refId": "A", "expr": "max(container_memory_working_set_bytes{name=\"$container\"}) / max(container_spec_memory_limit_bytes{name=\"$container\"} < 1e15)", "instant": true}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.7}, {"color": "red", "value": 0.9}]}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "value", "graphMode": "none", "textMode": "value"}
+    }
+  ]
+}
