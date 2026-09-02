@@ -15,10 +15,18 @@ summary (локальная или любая OpenAI-совместимая LLM)
 | `recap-asr/` | сервис транскрибации + диаризации, эталон голоса владельца (нативная Windows-служба, без Docker) | GPU-хост |
 | `llm/` | `Modelfile` производной модели Ollama (контекст 16k) | GPU-хост |
 | `workflow/` | workflow n8n: код нод + скрипт деплоя через REST API | стек `n8n` на NAS |
-| `stack/` | compose стека n8n + скрипт доставки заметок в vault | NAS, docker + планировщик |
+| `stack/` | compose стека n8n + экспортер метрик конвейера + скрипт доставки заметок в vault | NAS, docker + планировщик |
+| `grafana/` | дашборд для метрик конвейера (импортируемый JSON) | Grafana |
 
 Параметры установки — в env-файлах, примеры: `stack/.env.example`,
 `stack/deliver-outbox.env.example`, `workflow/.n8n.env.example`.
+
+## Метрики
+
+Три эндпойнта в формате Prometheus, без аутентификации (только LAN): `/metrics` n8n на порту UI,
+`recap-exporter` (реестр и outbox конвейера, порт 9819) и `/metrics` сервиса `recap-asr`.
+Переход файла в `failed` workflow сам сообщает в Telegram. Дашборд — `grafana/recap.json`,
+подробности — DEPLOY.md, раздел «Метрики».
 
 ## Потоки
 

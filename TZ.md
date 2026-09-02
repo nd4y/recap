@@ -75,6 +75,7 @@ flowchart LR
 | Суммаризация | GPU-хост (дефолт) или внешний провайдер | OpenAI-совместимый `/v1/chat/completions`; локально Ollama, провайдер меняется env-переменными |
 | Доставка заметок | NAS, планировщик | outbox -> штатный API NAS -> vault -> клиент синхронизации разносит по устройствам |
 | Уведомления | Telegram | отдельный бот, личный чат |
+| Наблюдаемость | NAS + GPU-хост | Prometheus-метрики: `/metrics` n8n, `recap-exporter` (реестр, outbox), `/metrics` `recap-asr`; дашборд Grafana в `grafana/` |
 
 ### 3.1 Почему n8n
 
@@ -133,6 +134,7 @@ flowchart LR
 Ошибка диаризации не валит транскрипцию: `diarization: false` + `diarization_error`.
 Нечитаемый файл — HTTP 422, workflow помечает его `failed` без повторов.
 `GET /health` — движок, загруженность моделей, наличие эталона.
+`GET /metrics` — Prometheus: запросы по результату (`ok`/`skipped`/`undecodable`/`error`), секунды аудио, время по стадиям (`decode`/`diarization`/`asr`), гистограмма длительности запроса, найден ли владелец, какие модели сейчас в VRAM.
 
 **Конфигурация службы (env):**
 
@@ -213,8 +215,12 @@ Docker-стек `n8n` на NAS (compose в `stack/docker-compose.yml`), обра
 | `RECAP_TZ_OFFSET_HOURS` | `0` | сдвиг локального времени от UTC для дат из Jitsi и mtime |
 | `RECAP_TG_MAX_AGE_DAYS` | `2` | записи старше в Telegram не шлются |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | секреты | доставка |
+| `N8N_METRICS` (+ `N8N_METRICS_INCLUDE_*`) | `true` | `/metrics` движка на порту UI: экзекьюшены по workflow, процесс |
+| `RECAP_EXPORTER_PORT` | `9819` | порт экспортера метрик конвейера |
 
 Bind mounts: каталог записей -> `/data/recordings`, каталог состояния -> `/data/state` (реестр, outbox), vault -> `/data/vault` (workflow только проверяет коллизии имён, запись идёт через outbox).
+
+Второй сервис стека — `recap-exporter`: `python:alpine` без сборки, скрипт `stack/recap-exporter.py` (только stdlib) монтируется файлом из `N8N_DATA_DIR`, реестр и outbox — read-only. Отдаёт Prometheus-метрики конвейера: файлы по типу и статусу, секунды аудио / ASR / LLM, когда последний файл получил каждый статус, mtime реестра (= последний тик), заметки в outbox и их возраст.
 
 Два workflow, деплой скриптом `workflow/deploy_workflows.py` через REST API n8n (код нод лежит отдельными `.js`-файлами и подставляется в JSON workflow):
 
@@ -293,7 +299,7 @@ tags: [recording/call]
    5. заметка в outbox, статус `noted`;
    6. Telegram (если настроен и запись свежая);
    7. статус `done` (или `skipped` для коротких).
-6. **Реестр** `/data/state/registry.json`: `{status, claimed, attempts, size, mtime, note_path, ts, error}` на каждый относительный путь. Терминальные статусы: `done`, `failed`, `skipped`. Повтор — ручное удаление записи из реестра.
+6. **Реестр** `/data/state/registry.json`: `{status, claimed, attempts, size, mtime, type, note_path, ts, error, duration, asr_seconds, llm_seconds}` на каждый относительный путь. Терминальные статусы: `done`, `failed`, `skipped`. Повтор — ручное удаление записи из реестра. Поля `type` и `*_seconds` нужны экспортеру метрик: тип без повторного разбора пути, тайминги ASR и LLM по файлу.
 
 ## 6. Типы записей
 
@@ -314,6 +320,7 @@ tags: [recording/call]
 - **ASR вернул 4xx** (битый файл): `failed` сразу, с текстом ошибки в реестре.
 - **Прочие ошибки на файле**: до 3 попыток, затем `failed`.
 - **Невалидный JSON от LLM**: повторный запрос, затем заметка с сырым текстом ответа.
+- **Переход файла в `failed`** (битый файл или исчерпанные попытки) -> отдельное сообщение в Telegram из ноды `Mark bad` / `Scan` с путём файла и ошибкой; ошибка отправки алерт не роняет тик.
 - **Error workflow**: любое неперехваченное падение -> сообщение в Telegram с именем workflow и ошибкой.
 - Ни один шаг не дублирует заметку: коллизии имён проверяются по vault и outbox.
 
@@ -330,7 +337,12 @@ tags: [recording/call]
 - Полная перегонка архива на текущей версии: 169 файлов, 151 заметка, 17 `skipped` (короче 5 с), 5 `failed` (нечитаемые m4a).
 - Живость видна по результату: заметки появляются, ошибки прилетают в Telegram. Отладка — история экзекьюшенов n8n (`workflow/diag_exec.py`, `workflow/dump_exec.py`).
 - Логи стека — json-file с ротацией.
-- Не сделано: метрики n8n в Prometheus-совместимое хранилище, отдельный алерт при переходе файла в `failed`.
+- **Метрики** (Prometheus-формат, без аутентификации, только LAN), три источника:
+  - `/metrics` n8n на порту UI (`N8N_METRICS=true`): экзекьюшены по workflow, процесс node.js;
+  - `recap-exporter` (второй сервис стека, порт `RECAP_EXPORTER_PORT`): реестр и outbox — `recap_registry_files{type,status}`, суммы и счётчики `recap_registry_{audio,asr,llm}_seconds`, `recap_registry_last_transition_timestamp_seconds{status}`, `recap_registry_updated_timestamp_seconds` (последний тик), `recap_outbox_files`, `recap_outbox_oldest_age_seconds`;
+  - `/metrics` сервиса `recap-asr`: `recap_asr_requests_total{result}`, `recap_asr_audio_seconds_total`, `recap_asr_stage_seconds_total{stage}`, гистограмма `recap_asr_request_seconds`, `recap_asr_owner_total{result}`, `recap_asr_model_loaded{model}`, `recap_asr_inflight`.
+- Дашборд Grafana — `grafana/recap.json` (конвейер, ASR, n8n), datasource выбирается при импорте.
+- Алерты: переход файла в `failed` — сообщение в Telegram из самого workflow; по метрикам рекомендованы правила «тики остановились» (`time() - recap_registry_updated_timestamp_seconds > 900`) и «outbox не разгребается» (`recap_outbox_oldest_age_seconds > 1800`), см. DEPLOY.md.
 
 ## 10. Состав репозитория и развёртывание
 
@@ -339,7 +351,8 @@ tags: [recording/call]
 | `recap-asr/` | сервис транскрибации + диаризации, `enroll.py`, шаблон конфига WinSW | GPU-хост |
 | `llm/` | `Modelfile` производной модели Ollama | GPU-хост |
 | `workflow/` | код нод n8n (`scan.js`, `build_prompt.js`, `save_note.js`, `mark_bad.js`, `prep_doc.js`, `finalize.js`) и скрипт деплоя | стек `n8n` |
-| `stack/` | compose стека n8n, скрипт доставки outbox | NAS |
+| `stack/` | compose стека n8n, экспортер метрик конвейера (`recap-exporter.py`), скрипт доставки outbox | NAS |
+| `grafana/` | дашборд `recap.json` для импорта в Grafana | Grafana |
 
 Всё, что зависит от установки, вынесено в env-файлы с примерами: `stack/.env.example`, `stack/deliver-outbox.env.example`, `workflow/.n8n.env.example`. Заполненные копии gitignored.
 Пошаговая установка с нуля — [DEPLOY.md](DEPLOY.md).

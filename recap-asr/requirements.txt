@@ -15,3 +15,5 @@ pyannote.audio==3.3.2
 huggingface_hub<1.0
 # pyannote 3.3.2 импортирует matplotlib в tasks/segmentation/mixins.py
 matplotlib
+# метрики /metrics
+prometheus_client

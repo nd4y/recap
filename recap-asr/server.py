@@ -35,13 +35,16 @@ os.environ["PATH"] = os.pathsep.join(
 # pyannote checkpoints predate torch 2.6 weights_only default and fail to load
 # under it; models come only from the official pyannote repos in our own HF cache
 os.environ.setdefault("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "1")
+# без серий *_created рядом с каждым счётчиком: они удваивают выдачу /metrics без пользы
+os.environ.setdefault("PROMETHEUS_DISABLE_CREATED_SERIES", "true")
 
 import torch  # noqa: E402  (import order is deliberate)
 import numpy as np  # noqa: E402
 import uvicorn  # noqa: E402
 from fastapi import FastAPI, File, Form, UploadFile  # noqa: E402
-from fastapi.responses import JSONResponse  # noqa: E402
+from fastapi.responses import JSONResponse, Response  # noqa: E402
 import av  # noqa: E402  (PyAV: декод m4a/webm/mp3/... в float32 16 kHz mono)
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest  # noqa: E402
 
 log = logging.getLogger("recap-asr")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -75,6 +78,35 @@ _lock = threading.Lock()  # GPU work is serialized
 _models = {"asr": None, "diarization": None, "embedding": None}
 _last_used = 0.0
 _owner_ref = None
+
+# Prometheus-метрики на /metrics (без аутентификации, как и остальной сервис — только LAN)
+M_REQUESTS = Counter("recap_asr_requests_total", "Transcription requests by result", ["result"])
+M_AUDIO = Counter("recap_asr_audio_seconds_total", "Audio duration received, by result", ["result"])
+M_STAGE = Counter("recap_asr_stage_seconds_total", "Wall time by processing stage", ["stage"])
+M_REQUEST_TIME = Histogram(
+    "recap_asr_request_seconds", "Wall time of a transcription request",
+    buckets=(5, 10, 20, 30, 60, 120, 300, 600, 900),
+)
+M_SEGMENTS = Counter("recap_asr_segments_total", "Transcript segments produced")
+M_OWNER = Counter("recap_asr_owner_total", "Owner identification outcome per diarized request", ["result"])
+M_INFLIGHT = Gauge("recap_asr_inflight", "Requests being processed or waiting for the GPU lock")
+M_MODEL_LOADED = Gauge("recap_asr_model_loaded", "1 while the model is loaded in VRAM", ["model"])
+for _r in ("ok", "skipped", "undecodable", "error"):
+    M_REQUESTS.labels(_r)
+    M_AUDIO.labels(_r)
+for _s in ("decode", "diarization", "asr"):
+    M_STAGE.labels(_s)
+for _o in ("found", "not_found", "no_reference"):
+    M_OWNER.labels(_o)
+for _m in _models:
+    M_MODEL_LOADED.labels(_m).set(0)
+
+
+# свой роут, а не app.mount("/metrics", make_asgi_app()): mount отвечает на /metrics
+# редиректом 307 на /metrics/, и скрейперу без follow_redirects достаётся пустой ответ
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 def decode_audio(path, sampling_rate=SAMPLE_RATE):
@@ -111,6 +143,7 @@ def _get_asr():
 
         log.info("loading GigaAM %s", ASR_MODEL)
         _models["asr"] = gigaam.load_model(ASR_MODEL, download_root=GIGAAM_CACHE)
+        M_MODEL_LOADED.labels("asr").set(1)
     return _models["asr"]
 
 
@@ -122,6 +155,7 @@ def _get_diarization():
         pipe = Pipeline.from_pretrained(DIARIZATION_MODEL, use_auth_token=HF_TOKEN or None)
         pipe.to(torch.device("cuda"))
         _models["diarization"] = pipe
+        M_MODEL_LOADED.labels("diarization").set(1)
     return _models["diarization"]
 
 
@@ -132,6 +166,7 @@ def _get_embedding():
         log.info("loading embedding model %s", EMBEDDING_MODEL)
         model = Model.from_pretrained(EMBEDDING_MODEL, use_auth_token=HF_TOKEN or None)
         _models["embedding"] = Inference(model, window="whole", device=torch.device("cuda"))
+        M_MODEL_LOADED.labels("embedding").set(1)
     return _models["embedding"]
 
 
@@ -145,6 +180,7 @@ def _unload_models(reason):
         log.info("unloading models from VRAM (%s)", reason)
         for k in _models:
             _models[k] = None
+            M_MODEL_LOADED.labels(k).set(0)
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -204,6 +240,9 @@ def diarize(audio, num_speakers=None):
     best = max(scored, key=lambda s: s["owner_score"], default=None)
     for s in speakers:
         s["is_owner"] = bool(best and s is best and best["owner_score"] >= OWNER_THRESHOLD)
+    M_OWNER.labels(
+        "no_reference" if ref is None else ("found" if any(s["is_owner"] for s in speakers) else "not_found")
+    ).inc()
     return ann, speakers
 
 
@@ -385,13 +424,17 @@ async def transcribe(
         # битый/недокачанный файл — это проблема входа (4xx), а не сервиса (5xx):
         # клиент по коду отличает «файл плохой, пометить failed» от «повторить позже»
         log.warning("undecodable audio %s: %s", file.filename, e)
+        M_REQUESTS.labels("undecodable").inc()
         return JSONResponse({"error": "undecodable audio: %s" % e}, status_code=422)
     finally:
         os.unlink(path)
+    M_STAGE.labels("decode").inc(time.time() - t0)
     duration = len(audio) / SAMPLE_RATE
 
     if MIN_DURATION and duration < MIN_DURATION:
         log.info("skipped %s: %.1fs < %.1fs", file.filename, duration, MIN_DURATION)
+        M_REQUESTS.labels("skipped").inc()
+        M_AUDIO.labels("skipped").inc(duration)
         return JSONResponse({
             "task": "transcribe", "language": DEFAULT_LANGUAGE,
             "duration": round(duration, 2), "text": "", "segments": [],
@@ -402,33 +445,50 @@ async def transcribe(
     want_diarization = str(diarize_flag).lower() not in ("false", "0", "no", "")
     ns = int(num_speakers) if num_speakers and str(num_speakers).strip().isdigit() else None
 
-    with _lock:
-        _touch()
-        speakers_out, diar_ok, diar_err, ann = [], False, None, None
-        if want_diarization:
-            try:
-                ann, speakers = diarize(audio, num_speakers=ns)
-                speakers_out = [
-                    {k: v for k, v in s.items() if k != "embedding"} for s in speakers
+    M_INFLIGHT.inc()
+    try:
+        with _lock:
+            _touch()
+            speakers_out, diar_ok, diar_err, ann = [], False, None, None
+            if want_diarization:
+                t_diar = time.time()
+                try:
+                    ann, speakers = diarize(audio, num_speakers=ns)
+                    speakers_out = [
+                        {k: v for k, v in s.items() if k != "embedding"} for s in speakers
+                    ]
+                    diar_ok = True
+                except Exception as e:  # diarization failure must not kill transcription
+                    log.exception("diarization failed")
+                    diar_err = str(e)
+                M_STAGE.labels("diarization").inc(time.time() - t_diar)
+
+            t_asr = time.time()
+            ranges = _speech_ranges(ann, audio) if diar_ok else _full_ranges(audio)
+            chunks = _transcribe_ranges(audio, ranges)
+            M_STAGE.labels("asr").inc(time.time() - t_asr)
+
+            if diar_ok:
+                segments = segments_to_turns(chunks, ann)
+            else:
+                segments = [
+                    {"id": i, "start": ch["start"], "end": ch["end"], "text": ch["text"]}
+                    for i, ch in enumerate(chunks)
                 ]
-                diar_ok = True
-            except Exception as e:  # diarization failure must not kill transcription
-                log.exception("diarization failed")
-                diar_err = str(e)
+            _touch()
+            if UNLOAD_AFTER:
+                _unload_models("after request")
+    except Exception:
+        M_REQUESTS.labels("error").inc()
+        M_AUDIO.labels("error").inc(duration)
+        raise
+    finally:
+        M_INFLIGHT.dec()
 
-        ranges = _speech_ranges(ann, audio) if diar_ok else _full_ranges(audio)
-        chunks = _transcribe_ranges(audio, ranges)
-
-        if diar_ok:
-            segments = segments_to_turns(chunks, ann)
-        else:
-            segments = [
-                {"id": i, "start": ch["start"], "end": ch["end"], "text": ch["text"]}
-                for i, ch in enumerate(chunks)
-            ]
-        _touch()
-        if UNLOAD_AFTER:
-            _unload_models("after request")
+    M_REQUESTS.labels("ok").inc()
+    M_AUDIO.labels("ok").inc(duration)
+    M_SEGMENTS.inc(len(segments))
+    M_REQUEST_TIME.observe(time.time() - t0)
 
     body = {
         "task": "transcribe",

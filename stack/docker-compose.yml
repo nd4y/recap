@@ -5,6 +5,10 @@
 # владельца каталогов, порт UI, подсеть, адреса GPU-сервисов, секреты.
 # Env с префиксом RECAP_* и LLM_*/TELEGRAM_* — конфиг workflow recap, движка не касается.
 #
+# Метрики (Prometheus-формат, без аутентификации — только LAN):
+#   n8n            http://<nas>:${N8N_PORT}/metrics            движок: экзекьюшены, процесс
+#   recap-exporter http://<nas>:${RECAP_EXPORTER_PORT}/metrics конвейер: реестр, outbox
+#
 # Ресурсы: только mem_limit — на cgroup v1 (типично для NAS) `cpus:` не работает.
 
 x-svc: &svc
@@ -39,6 +43,13 @@ services:
       # экзекьюшены строго по очереди: параллельные тики писали бы реестр наперегонки
       - N8N_CONCURRENCY_PRODUCTION_LIMIT=1
       - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
+      # --- метрики движка: /metrics на порту UI ---
+      - N8N_METRICS=${N8N_METRICS:-true}
+      - N8N_METRICS_INCLUDE_DEFAULT_METRICS=true
+      - N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL=true
+      - N8N_METRICS_INCLUDE_WORKFLOW_NAME_LABEL=true
+      # счётчики started/success/failed по workflow и нодам
+      - N8N_METRICS_INCLUDE_MESSAGE_EVENT_BUS_METRICS=true
       # --- конфиг пайплайна (читается нодами workflow через $env) ---
       - RECAP_ASR_URL=${RECAP_ASR_URL:?recap-asr URL}
       # сколько файлов берёт один тик (5 мин)
@@ -70,6 +81,37 @@ services:
       timeout: 10s
       retries: 3
     mem_limit: 1g
+
+  # Метрики самого конвейера: реестр и outbox -> /metrics (что именно — в шапке
+  # recap-exporter.py). Скрипт на stdlib, монтируется файлом из N8N_DATA_DIR,
+  # образ без сборки. Тот же uid:gid, что у n8n, — иначе state/ на NAS не прочитать.
+  recap-exporter:
+    image: python:3.12-alpine
+    container_name: recap-exporter
+    <<: *svc
+    user: "${N8N_UID:-1000}:${N8N_GID:-1000}"
+    command: ["python", "-u", "/app/recap-exporter.py"]
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - RECAP_STATE_DIR=/data/state
+      - RECAP_EXPORTER_PORT=9819
+    volumes:
+      - ${N8N_DATA_DIR}/recap-exporter.py:/app/recap-exporter.py:ro
+      - ${N8N_DATA_DIR}/state:/data/state:ro
+    networks:
+      - n8n_default
+    ports:
+      - "${RECAP_EXPORTER_PORT:-9819}:9819"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9819/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 64m
+    read_only: true
+    cap_drop:
+      - ALL
 
 networks:
   n8n_default:

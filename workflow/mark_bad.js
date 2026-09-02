@@ -1,6 +1,7 @@
 // Mark bad: ASR-нода упала на этом файле. 4xx = файл битый -> failed навсегда;
 // прочее (timeout, connection refused, 5xx) = транзиент -> вернуть в очередь,
 // не сжигая попытку (GPU-хост может быть просто выключен).
+// Переход в failed — отдельное сообщение в Telegram (если бот настроен).
 const fs = require('fs');
 const meta = $('Loop').item.json;
 const err = ($json && $json.error) || {};
@@ -23,4 +24,15 @@ if (permanent) {
 }
 reg[meta.rel] = r;
 fs.writeFileSync(STATE, JSON.stringify(reg, null, 1));
+
+if (permanent && $env.TELEGRAM_BOT_TOKEN && $env.TELEGRAM_CHAT_ID) {
+  try {
+    await this.helpers.httpRequest({
+      method: 'POST',
+      url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`,
+      body: { chat_id: $env.TELEGRAM_CHAT_ID, text: `recap: файл помечен failed\n${meta.rel}\nASR: ${msg}` },
+      json: true, timeout: 30000,
+    });
+  } catch (e) { /* алерт не должен ронять тик */ }
+}
 return { json: { rel: meta.rel, permanent, error: msg } };

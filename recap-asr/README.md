@@ -15,6 +15,11 @@
 - Записи короче `RECAP_MIN_DURATION` (5 c) не транскрибируются: ответ
   `{"segments": [], "skipped": "too_short"}`.
 - `GET /health` — статус, движок, загруженность моделей, наличие эталона.
+- `GET /metrics` — Prometheus: `recap_asr_requests_total{result}` (`ok`/`skipped`/`undecodable`/`error`),
+  `recap_asr_audio_seconds_total{result}`, `recap_asr_stage_seconds_total{stage}` (`decode`/`diarization`/`asr`),
+  гистограмма `recap_asr_request_seconds`, `recap_asr_owner_total{result}`, `recap_asr_model_loaded{model}`,
+  `recap_asr_inflight`. Без аутентификации, как и всё остальное — тот же порт, тот же firewall.
+  Серии `*_created` отключены (`PROMETHEUS_DISABLE_CREATED_SERIES`, ставит сам server.py).
 - Модели выгружаются из VRAM после каждого запроса (`RECAP_UNLOAD_AFTER`) и по
   простою (`RECAP_TTL`, 300 c) — VRAM делится с LLM у Ollama.
 

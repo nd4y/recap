@@ -23,6 +23,7 @@ const files = [];
 })(REC);
 
 const candidates = [];
+const exhausted = []; // файлы, у которых кончились попытки на этом тике
 for (const p of files) {
   if (!AUDIO.has(path.extname(p).toLowerCase())) continue;
   const st = fs.statSync(p);
@@ -31,7 +32,14 @@ for (const p of files) {
   if (r) {
     if (['done', 'failed', 'skipped'].includes(r.status)) continue;
     if (r.status === 'processing' && now - (r.claimed || 0) < 2 * 3600e3) continue;
-    if ((r.attempts || 0) >= 3) { r.status = 'failed'; continue; }
+    if ((r.attempts || 0) >= 3) {
+      // три claim'а подряд протухли (workflow падал после ASR): failed навсегда
+      r.status = 'failed';
+      r.error = r.error || r.last_error || 'attempts exhausted';
+      r.ts = now;
+      exhausted.push(rel);
+      continue;
+    }
   }
   if (now - st.mtimeMs < 3 * 60e3) continue; // возможно, ещё дозаливается
   candidates.push({ path: p, rel, size: st.size, mtimeMs: st.mtimeMs });
@@ -39,16 +47,6 @@ for (const p of files) {
 
 candidates.sort((a, b) => a.mtimeMs - b.mtimeMs);
 const batch = candidates.slice(0, BATCH);
-
-for (const f of batch) {
-  reg[f.rel] = Object.assign(reg[f.rel] || {}, {
-    status: 'processing', claimed: now,
-    attempts: ((reg[f.rel] || {}).attempts || 0) + 1,
-    size: f.size, mtime: f.mtimeMs,
-  });
-}
-fs.mkdirSync('/data/state', { recursive: true });
-fs.writeFileSync(STATE, JSON.stringify(reg, null, 1));
 
 const pad = (n) => String(n).padStart(2, '0');
 // Явный сдвиг локального времени от UTC в часах (RECAP_TZ_OFFSET_HOURS, без DST):
@@ -93,4 +91,30 @@ function parseMeta(f) {
   return meta;
 }
 
-return batch.map((f) => ({ json: Object.assign({}, f, parseMeta(f)) }));
+const metas = batch.map(parseMeta);
+batch.forEach((f, i) => {
+  reg[f.rel] = Object.assign(reg[f.rel] || {}, {
+    status: 'processing', claimed: now,
+    attempts: ((reg[f.rel] || {}).attempts || 0) + 1,
+    size: f.size, mtime: f.mtimeMs,
+    type: metas[i].type, // для метрик (recap-exporter): тип без повторного разбора пути
+  });
+});
+fs.mkdirSync('/data/state', { recursive: true });
+fs.writeFileSync(STATE, JSON.stringify(reg, null, 1));
+
+// переход в failed по исчерпанию попыток — сообщение в Telegram (если бот настроен)
+if (exhausted.length && $env.TELEGRAM_BOT_TOKEN && $env.TELEGRAM_CHAT_ID) {
+  for (const rel of exhausted) {
+    try {
+      await this.helpers.httpRequest({
+        method: 'POST',
+        url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`,
+        body: { chat_id: $env.TELEGRAM_CHAT_ID, text: `recap: файл помечен failed после 3 попыток\n${rel}\n${reg[rel].error}` },
+        json: true, timeout: 30000,
+      });
+    } catch (e) { /* алерт не должен ронять тик */ }
+  }
+}
+
+return batch.map((f, i) => ({ json: Object.assign({}, f, metas[i]) }));

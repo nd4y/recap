@@ -303,3 +303,51 @@ workflow — `deploy_workflows.py`; стек — `docker compose up -d` с но�
   или токен HF не подставлен в xml.
 - **Ollama отвечает 404 на `/v1/chat/completions`** — в `LLM_BASE_URL` должен быть суффикс `/v1`
   (`http://<gpu-host>:11434/v1`), workflow добавляет только `/chat/completions`.
+
+## 8. Метрики
+
+Три эндпойнта в формате Prometheus. Аутентификации нет ни у одного — открывать только в LAN.
+
+| Источник | Адрес | Что даёт |
+|---|---|---|
+| n8n | `http://<nas>:<N8N_PORT>/metrics` | экзекьюшены по workflow (`n8n_workflow_*`), процесс node.js (`n8n_process_*`, `n8n_nodejs_*`), `n8n_version_info` |
+| recap-exporter | `http://<nas>:<RECAP_EXPORTER_PORT>/metrics` (дефолт 9819) | реестр и outbox: файлы по типу и статусу, секунды аудио / ASR / LLM, когда последний файл получил статус, возраст последнего тика, заметки в очереди на доставку |
+| recap-asr | `http://<gpu-host>:8000/metrics` | запросы по результату (`ok`/`skipped`/`undecodable`/`error`), секунды аудио, время по стадиям (`decode`/`diarization`/`asr`), гистограмма длительности запроса, найден ли владелец, загруженные в VRAM модели |
+
+Полный список метрик экспортера — в шапке `stack/recap-exporter.py`.
+
+**Включение.** В стеке метрики n8n включены по умолчанию (`N8N_METRICS=true`); экспортер — сервис
+`recap-exporter` того же compose, его скрипт `stack/recap-exporter.py` нужно положить в `N8N_DATA_DIR`
+(монтируется в контейнер файлом, образ `python:alpine` без сборки). У сервиса ASR ничего включать не нужно.
+
+**Скрейп** (Prometheus / vmagent):
+
+```yaml
+  - job_name: n8n
+    static_configs:
+      - targets: ['nas.local:5678']
+  - job_name: recap-exporter
+    static_configs:
+      - targets: ['nas.local:9819']
+  - job_name: recap-asr
+    static_configs:
+      - targets: ['gpu-host.local:8000']
+```
+
+Выключенный GPU-хост даёт `up{job="recap-asr"} = 0` — это норма, алерт на него не нужен.
+
+**Дашборд** — `grafana/recap.json`: Dashboards → New → Import, при импорте выбрать Prometheus-совместимый
+datasource. Три ряда: конвейер (реестр, тайминги, outbox, последний тик), сервис ASR, движок n8n.
+
+**Алерты.** Переход файла в `failed` (битый файл или исчерпанные попытки) workflow сообщает в Telegram сам,
+без внешнего алертинга. По метрикам имеет смысл завести три правила в Grafana:
+
+| Условие | Смысл |
+|---|---|
+| `time() - recap_registry_updated_timestamp_seconds > 900` | тики workflow остановились: n8n лежит или workflow деактивирован |
+| `recap_outbox_oldest_age_seconds > 1800` | заметки не доезжают до vault: планировщик NAS не отработал |
+| `increase(recap_registry_files{status="failed"}[1h]) > 0` | файл помечен `failed` (дублирует сообщение из Telegram на случай, если бот не настроен) |
+
+**Если тайминги пустые.** `recap_registry_{audio,asr,llm}_seconds_*` считаются только по файлам, у которых в
+реестре есть поля `duration` / `asr_seconds` / `llm_seconds` — их пишут ноды `Save note` с этой версии workflow.
+Файлы, обработанные раньше, в эти суммы не входят; в остальные метрики входят все.

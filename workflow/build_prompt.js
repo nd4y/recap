@@ -52,6 +52,7 @@ return {
     skipped: asr.skipped || null,
     meta,
     asrInfo: { duration: asr.duration, diarization: asr.diarization, processing_time: asr.processing_time },
+    t0: Date.now(), // начало этапа LLM: по нему Save note считает llm_seconds для реестра
     transcript,
     truncated,
     llmBody: {

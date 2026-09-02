@@ -5,6 +5,10 @@ const path = require('path');
 const prev = $('Build prompt').item.json;
 const resp = $json;
 
+const r1 = (x) => Math.round((x || 0) * 10) / 10;
+// тайминги файла для метрик (recap-exporter): длительность аудио, время ASR, время LLM
+const timings = { duration: r1(prev.asrInfo.duration), asr_seconds: r1(prev.asrInfo.processing_time) };
+
 // запись короче порога (RECAP_MIN_DURATION у сервиса): ни заметки, ни Telegram —
 // только отметка в реестре
 if (prev.skipped) {
@@ -12,7 +16,7 @@ if (prev.skipped) {
   const reg0 = JSON.parse(fs.readFileSync(STATE0, 'utf8'));
   reg0[prev.meta.rel] = Object.assign(reg0[prev.meta.rel] || {}, {
     status: 'skipped', reason: prev.skipped, ts: Date.now(),
-  });
+  }, timings);
   fs.writeFileSync(STATE0, JSON.stringify(reg0, null, 1));
   const it0 = $input.item;
   delete it0.binary;
@@ -53,6 +57,8 @@ if (emptyCall) {
   if (!data || typeof data !== 'object') {
     data = { title: prev.meta.filename, summary: '(LLM вернула невалидный JSON, summary отсутствует)', action_items: [], participants: [] };
   }
+  // время этапа LLM (включая ретрай) — от выхода из Build prompt до этой точки
+  if (prev.t0) timings.llm_seconds = r1((Date.now() - prev.t0) / 1000);
 }
 
 const fmtDur = (s) => { s = Math.round(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -97,7 +103,7 @@ fs.writeFileSync(outFile, note);
 
 const STATE = '/data/state/registry.json';
 const reg = JSON.parse(fs.readFileSync(STATE, 'utf8'));
-reg[prev.meta.rel] = Object.assign(reg[prev.meta.rel] || {}, { status: 'noted', note_path: full, ts: Date.now() });
+reg[prev.meta.rel] = Object.assign(reg[prev.meta.rel] || {}, { status: 'noted', note_path: full, ts: Date.now() }, timings);
 fs.writeFileSync(STATE, JSON.stringify(reg, null, 1));
 
 const typeLabel = { meeting: 'Встреча', voice_note: 'Голосовая заметка', generic: 'Запись' };
