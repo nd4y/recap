@@ -342,6 +342,7 @@ tags: [recording/call]
 | `stack/` | compose стека n8n, скрипт доставки outbox | NAS |
 
 Всё, что зависит от установки, вынесено в env-файлы с примерами: `stack/.env.example`, `stack/deliver-outbox.env.example`, `workflow/.n8n.env.example`. Заполненные копии gitignored.
+Пошаговая установка с нуля — [DEPLOY.md](DEPLOY.md).
 
 Порядок:
 
