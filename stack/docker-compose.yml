@@ -1,0 +1,79 @@
+# n8n — движок автоматизаций (общий, не только для recap).
+# Первый workflow — recap: конвейер транскрибации и суммаризации аудиозаписей.
+#
+# Все параметры установки — через env (см. .env.example): пути на хосте, uid:gid
+# владельца каталогов, порт UI, подсеть, адреса GPU-сервисов, секреты.
+# Env с префиксом RECAP_* и LLM_*/TELEGRAM_* — конфиг workflow recap, движка не касается.
+#
+# Ресурсы: только mem_limit — на cgroup v1 (типично для NAS) `cpus:` не работает.
+
+x-svc: &svc
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    <<: *svc
+    # uid:gid владельца каталогов записей и vault — иначе запись упрётся в ACL NAS
+    user: "${N8N_UID:-1000}:${N8N_GID:-1000}"
+    environment:
+      - TZ=${TZ:-UTC}
+      - GENERIC_TIMEZONE=${TZ:-UTC}
+      - HOME=/data/n8n
+      - N8N_USER_FOLDER=/data/n8n
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+      - N8N_SECURE_COOKIE=false
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - NODE_FUNCTION_ALLOW_BUILTIN=fs,path,crypto
+      # нода Read/Write Files from Disk по умолчанию не пускает к произвольным путям
+      - N8N_RESTRICT_FILE_ACCESS_TO=/data/recordings;/data/state;/data/vault
+      # экзекьюшены строго по очереди: параллельные тики писали бы реестр наперегонки
+      - N8N_CONCURRENCY_PRODUCTION_LIMIT=1
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
+      # --- конфиг пайплайна (читается нодами workflow через $env) ---
+      - RECAP_ASR_URL=${RECAP_ASR_URL:?recap-asr URL}
+      # сколько файлов берёт один тик (5 мин)
+      - RECAP_BATCH=${RECAP_BATCH:-20}
+      # имя владельца для summary (вместо «Я»; в транскрипте метка «Я:» остаётся)
+      - RECAP_OWNER_NAME=${RECAP_OWNER_NAME:-Владелец}
+      # сдвиг локального времени от UTC в часах: task runner n8n не наследует TZ
+      - RECAP_TZ_OFFSET_HOURS=${RECAP_TZ_OFFSET_HOURS:-0}
+      # записи старше N дней в Telegram не отправляются (перегонка архива без спама)
+      - RECAP_TG_MAX_AGE_DAYS=${RECAP_TG_MAX_AGE_DAYS:-2}
+      - LLM_BASE_URL=${LLM_BASE_URL:?OpenAI-compatible base URL}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gemma3-recap}
+      - LLM_PROXY=${LLM_PROXY:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    volumes:
+      - ${N8N_DATA_DIR:?host dir for n8n data}/n8n:/data/n8n
+      - ${N8N_DATA_DIR}/state:/data/state
+      - ${RECORDINGS_DIR:?host dir with recordings}:/data/recordings
+      - ${VAULT_DIR:?host dir of the Obsidian vault}:/data/vault
+    networks:
+      - n8n_default
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    mem_limit: 1g
+
+networks:
+  n8n_default:
+    name: n8n_default
+    ipam:
+      config:
+        - subnet: ${N8N_SUBNET:-172.28.0.0/28}

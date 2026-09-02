@@ -1,0 +1,19 @@
+# секреты и локальное состояние
+workflow/.n8n-owner-password
+workflow/.n8n.env
+workflow/exec_dump.json
+stack/.env
+stack/deliver-outbox.env
+stack/backup-*/
+
+# отчёты с личными транскриптами звонков — в репо не попадают
+quality_report*.md
+beam10_report.md
+llm_ab_report.md
+gigaam_test_report.md
+
+*.log
+__pycache__/
+
+# слепок Env стека с реальными значениями
+stack/.env.portainer.json

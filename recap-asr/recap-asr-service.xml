@@ -1,0 +1,29 @@
+<!--
+  WinSW-конфиг службы recap-asr. Положить рядом с recap-asr-service.exe (WinSW 2.x)
+  в каталог установки: %BASE% = каталог, где лежит exe. Перед установкой заменить
+  __HF_TOKEN__ на read-токен Hugging Face с принятыми условиями моделей pyannote.
+  Установка:  recap-asr-service.exe install && recap-asr-service.exe start
+-->
+<service>
+  <id>recap-asr</id>
+  <name>recap-asr</name>
+  <description>Speech-to-text + diarization API for the recap pipeline (GigaAM v3 + pyannote)</description>
+  <executable>%BASE%\venv\Scripts\python.exe</executable>
+  <arguments>%BASE%\server.py</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+  <env name="HF_HOME" value="%BASE%\hf-cache" />
+  <env name="HF_TOKEN" value="__HF_TOKEN__" />
+  <env name="RECAP_GIGAAM_CACHE" value="%BASE%\gigaam-cache" />
+  <env name="RECAP_OWNER_REF" value="%BASE%\owner_ref.npy" />
+  <!-- каталог с ffmpeg.exe: gigaam зовёт его по имени, у службы нет пользовательского PATH -->
+  <env name="RECAP_FFMPEG_DIR" value="%BASE%\bin" />
+  <env name="RECAP_PORT" value="8000" />
+  <env name="RECAP_TTL" value="300" />
+  <startmode>Automatic</startmode>
+  <onfailure action="restart" delay="10 sec" />
+  <logpath>%BASE%\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>3</keepFiles>
+  </log>
+</service>

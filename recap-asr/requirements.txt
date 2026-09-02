@@ -1,0 +1,17 @@
+# torch/torchaudio ставятся отдельно с индекса cu128 (Blackwell / RTX 50xx).
+# Именно 2.8.0: в torchaudio 2.9 выпилен AudioMetaData, и pyannote.audio 3.3.2 падает на импорте:
+#   pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+#
+# ASR-движок — GigaAM v3. На PyPI пакета нет; если на хосте нет git — ставится из zip-архива GitHub:
+#   Invoke-WebRequest https://github.com/salute-developers/GigaAM/archive/refs/heads/main.zip -OutFile gigaam.zip
+#   Expand-Archive gigaam.zip; pip install .\GigaAM-main
+fastapi
+uvicorn[standard]
+python-multipart
+# PyAV: декод m4a/webm/mp3/mp4 в PCM (ffmpeg-библиотеки идут в колесе)
+av
+pyannote.audio==3.3.2
+# hub 1.0 выпилил use_auth_token, который pyannote 3.3.2 ещё передаёт
+huggingface_hub<1.0
+# pyannote 3.3.2 импортирует matplotlib в tasks/segmentation/mixins.py
+matplotlib
