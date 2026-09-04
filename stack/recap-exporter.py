@@ -31,7 +31,7 @@ OUTBOX = os.path.join(STATE, "outbox")
 PORT = int(os.environ.get("RECAP_EXPORTER_PORT", "9819"))
 
 # записи реестра до появления поля type: тип по подкаталогу, как в scan.js
-TYPE_BY_SUBDIR = {"CallRecords": "call", "Meetings": "meeting", "Jitsi": "meeting", "Voice": "voice_note"}
+TYPE_BY_SUBDIR = {"CallRecords": "call", "Meetings": "meeting", "Voice": "voice_note"}
 STATUSES = ("processing", "noted", "done", "failed", "skipped")
 
 

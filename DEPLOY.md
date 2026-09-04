@@ -149,7 +149,7 @@ ollama create gemma3-recap -f llm\Modelfile
 | Что | Переменная | Пример |
 |---|---|---|
 | данные n8n: внутри появятся `n8n/` (home, SQLite) и `state/` (реестр, outbox) | `N8N_DATA_DIR` | `/volume1/docker/n8n` |
-| записи; подкаталог = тип: `CallRecords`, `Meetings`, `Jitsi`, `Voice` | `RECORDINGS_DIR` | `/volume1/homes/user/Recordings` |
+| записи; подкаталог = тип: `CallRecords`, `Meetings`, `Voice` | `RECORDINGS_DIR` | `/volume1/homes/user/Recordings` |
 | корень Obsidian vault; заметки попадут в `Notes/Recordings/<год>/` | `VAULT_DIR` | `/volume1/homes/user/Obsidian` |
 
 Контейнер должен писать в vault и читать записи, поэтому запускается от uid:gid владельца этих каталогов

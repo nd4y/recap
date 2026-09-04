@@ -62,7 +62,8 @@ const localParts = (ms) => {
 function parseMeta(f) {
   const parts = f.rel.split('/');
   const sub = parts.length > 1 ? parts[0] : '';
-  const typeMap = { CallRecords: 'call', Meetings: 'meeting', Jitsi: 'meeting', Voice: 'voice_note' };
+  // все записи встреч (Jitsi, Teams и прочие) лежат в одном подкаталоге Meetings
+  const typeMap = { CallRecords: 'call', Meetings: 'meeting', Voice: 'voice_note' };
   const type = typeMap[sub] || 'generic';
   const base = path.basename(f.rel).replace(/\.[^.]+$/, '');
   const meta = { type, filename: base };

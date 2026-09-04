@@ -17,3 +17,6 @@ __pycache__/
 
 # слепок Env стека с реальными значениями
 stack/.env.portainer.json
+
+# сухие прогоны Extract: ответы LLM по личным транскриптам
+extract/runs/
