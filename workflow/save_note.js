@@ -30,18 +30,42 @@ if (emptyCall) {
   // LLM не вызывалась: речи в записи нет (короткие звонки шлагбауму и т.п.)
   data = { title: 'Пустой звонок', summary: 'Речь не распознана.', action_items: [], participants: [] };
 } else {
+  // LLM регулярно кладёт в строковые значения сырые переводы строк (markdown-список
+  // в summary) — для JSON.parse это управляющие символы и невалидный документ.
+  // Экранируем их внутри строк, не трогая структуру.
+  const escapeCtl = (s) => {
+    let out = '', inStr = false, esc = false;
+    for (const ch of s) {
+      if (inStr) {
+        if (esc) { out += ch; esc = false; continue; }
+        if (ch === '\\') { out += ch; esc = true; continue; }
+        if (ch === '"') { inStr = false; out += ch; continue; }
+        if (ch === '\n') { out += '\\n'; continue; }
+        if (ch === '\r') { continue; }
+        if (ch === '\t') { out += '\\t'; continue; }
+        out += ch;
+      } else {
+        if (ch === '"') inStr = true;
+        out += ch;
+      }
+    }
+    return out;
+  };
   const tryParse = (raw) => {
     let c = (raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-    try { return JSON.parse(c); } catch (e) {
-      const m = c.match(/\{[\s\S]*\}/);
-      if (m) { try { return JSON.parse(m[0]); } catch (e2) {} }
+    const m = c.match(/\{[\s\S]*\}/);
+    for (const cand of [c, m && m[0], escapeCtl(c), m && escapeCtl(m[0])]) {
+      if (!cand) continue;
+      try { return JSON.parse(cand); } catch (e) { /* следующий вариант */ }
     }
     return null;
   };
   data = tryParse(resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content);
   if (!data || typeof data !== 'object') {
     // одна повторная попытка с ужесточённым требованием формата — gemma изредка
-    // ломает JSON на длинных/разговорных транскриптах
+    // ломает JSON на длинных/разговорных транскриптах.
+    // Таймаут короче лимита task runner'а (N8N_RUNNERS_TASK_TIMEOUT, в compose 600 с):
+    // иначе runner убивает всю ноду, файл виснет в processing, а не уходит в фолбек
     const body = JSON.parse(JSON.stringify(prev.llmBody));
     body.messages.push({ role: 'user', content: 'Твой предыдущий ответ не был валидным JSON. Повтори ответ: СТРОГО один валидный JSON-объект указанной структуры, первый символ ответа — {.' });
     try {
@@ -49,7 +73,7 @@ if (emptyCall) {
         method: 'POST',
         url: `${$env.LLM_BASE_URL}/chat/completions`,
         headers: { Authorization: `Bearer ${$env.LLM_API_KEY || ''}` },
-        body, json: true, timeout: 600000,
+        body, json: true, timeout: 240000,
       });
       data = tryParse(r2.choices && r2.choices[0] && r2.choices[0].message && r2.choices[0].message.content);
     } catch (e) { /* ретрай не удался — ниже сработает фолбек */ }

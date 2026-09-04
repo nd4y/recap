@@ -206,6 +206,7 @@ Docker-стек `n8n` на NAS (compose в `stack/docker-compose.yml`), обра
 | Переменная | Значение | Зачем |
 |---|---|---|
 | `N8N_CONCURRENCY_PRODUCTION_LIMIT` | `1` | тики строго по очереди: параллельные писали бы реестр наперегонки |
+| `N8N_RUNNERS_TASK_TIMEOUT` | `600` | лимит одной Code-ноды: `Save note` повторно ходит в LLM, на часовой встрече дефолтных 300 с не хватало |
 | `N8N_RESTRICT_FILE_ACCESS_TO` | `/data/recordings;/data/state;/data/vault` | нода Read/Write Files иначе не пускает к путям |
 | `N8N_DEFAULT_BINARY_DATA_MODE` | `filesystem` | бинарники не в БД |
 | `NODE_FUNCTION_ALLOW_BUILTIN` | `fs,path,crypto` | Code-нодам нужна ФС |

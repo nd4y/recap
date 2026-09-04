@@ -42,6 +42,10 @@ services:
       - N8N_RESTRICT_FILE_ACCESS_TO=/data/recordings;/data/state;/data/vault
       # экзекьюшены строго по очереди: параллельные тики писали бы реестр наперегонки
       - N8N_CONCURRENCY_PRODUCTION_LIMIT=1
+      # лимит одной Code-ноды в task runner'е (дефолт 300 с): Save note делает повторный
+      # запрос к LLM на длинных транскриптах, и на часовой встрече 300 с не хватало —
+      # runner убивал ноду, файл зависал в processing
+      - N8N_RUNNERS_TASK_TIMEOUT=${N8N_RUNNERS_TASK_TIMEOUT:-600}
       - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
       # --- метрики движка: /metrics на порту UI ---
       - N8N_METRICS=${N8N_METRICS:-true}

@@ -303,6 +303,11 @@ workflow — `deploy_workflows.py`; стек — `docker compose up -d` с но�
   или токен HF не подставлен в xml.
 - **Ollama отвечает 404 на `/v1/chat/completions`** — в `LLM_BASE_URL` должен быть суффикс `/v1`
   (`http://<gpu-host>:11434/v1`), workflow добавляет только `/chat/completions`.
+- **«Task execution timed out after 300 seconds» в ноде `Save note`, файл завис в `processing`** —
+  task runner n8n убил Code-ноду во время повторного запроса к LLM (длинная встреча, невалидный JSON
+  с первого раза). В compose стоит `N8N_RUNNERS_TASK_TIMEOUT=600`, а ретрай ограничен 240 с; если
+  всплыло — проверить, что переменная доехала до контейнера. Claim файла протухнет через 2 часа и
+  тик возьмёт его снова; чтобы не ждать, удалить запись из реестра.
 
 ## 8. Метрики
 
