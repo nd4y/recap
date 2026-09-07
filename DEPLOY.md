@@ -282,6 +282,15 @@ python3 deploy_workflows.py
 
 **Обновление**: GPU-хост — заменить `server.py`/`enroll.py`, `recap-asr-service.exe restart`;
 workflow — `deploy_workflows.py`; стек — `docker compose up -d` с новым compose.
+Образ n8n закреплён по версии в compose (`n8nio/n8n:2.36.9`), а не `latest`: новую версию ставить
+сменой тега, после пересоздания стека дождаться тика и проверить, что реестр обновился.
+
+**Watchdog и хранение экзекьюшенов**: healthcheck n8n проверяет не только `/healthz`, но и mtime
+`state/registry.json` — если реестр не обновлялся `RECAP_WATCHDOG_MIN` минут (дефолт 45), контейнер
+убивает себя и поднимается заново по `restart: unless-stopped`. Останавливаешь workflow надолго —
+поставь `RECAP_WATCHDOG_MIN=0`, иначе перезапуск каждые 45 минут. Успешные экзекьюшены не сохраняются
+(настройка workflow в `deploy_workflows.py`), ошибочные хранятся `EXECUTIONS_DATA_MAX_AGE` часов, не
+больше `EXECUTIONS_DATA_PRUNE_MAX_COUNT` штук; для разбора успешных прогонов — реестр, заметка и метрики.
 
 **Бэкап**: `N8N_DATA_DIR` (SQLite n8n, реестр) и `owner_ref.npy`. Модели качаются заново.
 
@@ -303,6 +312,13 @@ workflow — `deploy_workflows.py`; стек — `docker compose up -d` с но�
   или токен HF не подставлен в xml.
 - **Ollama отвечает 404 на `/v1/chat/completions`** — в `LLM_BASE_URL` должен быть суффикс `/v1`
   (`http://<gpu-host>:11434/v1`), workflow добавляет только `/chat/completions`.
+- **Контейнер n8n `healthy`, а тики встали** — в логе контейнера `Timeout waiting for lock
+  SqliteWriteConnectionMutex`: заклин записи в SQLite, `/healthz` его не видит. Один экзекьюшен висит
+  `running`, остальные копятся в `new`. Лечится рестартом контейнера; watchdog в healthcheck делает это
+  сам через `RECAP_WATCHDOG_MIN` минут. После рестарта n8n догоняет пропущенные тики сотнями пустых
+  экзекьюшенов за минуту — это штатно.
+- **Контейнер n8n перезапускается каждые 45 минут** — workflow выключен или удалён, watchdog считает
+  это простоем. `RECAP_WATCHDOG_MIN=0` на время паузы.
 - **«Task execution timed out after 300 seconds» в ноде `Save note`, файл завис в `processing`** —
   task runner n8n убил Code-ноду во время повторного запроса к LLM (длинная встреча, невалидный JSON
   с первого раза). В compose стоит `N8N_RUNNERS_TASK_TIMEOUT=600`, а ретрай ограничен 240 с; если

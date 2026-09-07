@@ -218,6 +218,12 @@ Docker-стек `n8n` на NAS (compose в `stack/docker-compose.yml`), обра
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | секреты | доставка |
 | `N8N_METRICS` (+ `N8N_METRICS_INCLUDE_*`) | `true` | `/metrics` движка на порту UI: экзекьюшены по workflow, процесс |
 | `RECAP_EXPORTER_PORT` | `9819` | порт экспортера метрик конвейера |
+| `RECAP_WATCHDOG_MIN` | `45` | healthcheck: реестр не обновлялся столько минут -> SIGTERM в PID 1, контейнер поднимается заново; `0` — выключить (workflow остановлен намеренно) |
+| `EXECUTIONS_DATA_MAX_AGE`, `EXECUTIONS_DATA_PRUNE_MAX_COUNT` | `168`, `1000` | prune экзекьюшенов; успешные не сохраняются вовсе (настройка workflow), `DB_SQLITE_VACUUM_ON_STARTUP=true` |
+
+Образ закреплён по версии (`n8nio/n8n:2.36.9`), не `latest`: обновление — осознанная смена тега с проверкой тика.
+
+**Watchdog.** Заклин записи в SQLite (`Timeout waiting for lock SqliteWriteConnectionMutex`) останавливает все тики, но `/healthz` и `/healthz/readiness` продолжают отвечать 200 (проверено на инциденте 2026-09-05: 29 часов простоя при «здоровом» контейнере). Единственный надёжный признак жизни конвейера — mtime реестра, который `Scan` переписывает каждый тик. Healthcheck проверяет его и после `RECAP_WATCHDOG_MIN` провалов подряд убивает PID 1; счётчик даёт свежему контейнеру столько же минут на первый тик. Docker сам unhealthy-контейнеры не перезапускает, поэтому самоубийство + `restart: unless-stopped`.
 
 Bind mounts: каталог записей -> `/data/recordings`, каталог состояния -> `/data/state` (реестр, outbox), vault -> `/data/vault` (workflow только проверяет коллизии имён, запись идёт через outbox).
 
@@ -338,6 +344,7 @@ tags: [recording/call]
 - Полная перегонка архива на текущей версии: 169 файлов, 151 заметка, 17 `skipped` (короче 5 с), 5 `failed` (нечитаемые m4a).
 - Живость видна по результату: заметки появляются, ошибки прилетают в Telegram. Отладка — история экзекьюшенов n8n (`workflow/diag_exec.py`, `workflow/dump_exec.py`).
 - Логи стека — json-file с ротацией.
+- Инцидент 2026-09-05: n8n 2.36.9 заклинил мьютекс записи SQLite, тики встали на 29 часов при `healthy`-контейнере; заметил только алерт по `recap_registry_updated_timestamp_seconds`. Итог — watchdog в healthcheck (§4.3), успешные экзекьюшены не сохраняются, prune по возрасту и числу, образ закреплён по версии. После рестарта durable scheduler n8n догоняет пропущенные тики пачками — сотни пустых экзекьюшенов за минуту, это норма.
 - **Метрики** (Prometheus-формат, без аутентификации, только LAN), три источника:
   - `/metrics` n8n на порту UI (`N8N_METRICS=true`): экзекьюшены по workflow, процесс node.js;
   - `recap-exporter` (второй сервис стека, порт `RECAP_EXPORTER_PORT`): реестр и outbox — `recap_registry_files{type,status}`, суммы и счётчики `recap_registry_{audio,asr,llm}_seconds`, `recap_registry_last_transition_timestamp_seconds{status}`, `recap_registry_updated_timestamp_seconds` (последний тик), `recap_outbox_files`, `recap_outbox_oldest_age_seconds`;
