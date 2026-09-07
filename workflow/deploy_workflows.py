@@ -275,8 +275,11 @@ main_wf = {
         "TG doc": {"main": [[{"node": "Finalize", "type": "main", "index": 0}]]},
         "Finalize": {"main": [[{"node": "Loop", "type": "main", "index": 0}]]},
     },
+    # успешные экзекьюшены не сохраняются: 288 пустых тиков в сутки с полными данными
+    # раздували SQLite и участвовали в заклине мьютекса записи; для разбора остаются
+    # ошибочные (целиком) и история в реестре/метриках
     "settings": {"executionOrder": "v1", "timezone": _CFG["N8N_TIMEZONE"],
-                 "saveDataSuccessExecution": "all", "saveDataErrorExecution": "all"},
+                 "saveDataSuccessExecution": "none", "saveDataErrorExecution": "all"},
 }
 
 
