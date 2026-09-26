@@ -221,7 +221,7 @@ Docker-стек `n8n` на NAS (compose в `stack/docker-compose.yml`), обра
 | `RECAP_WATCHDOG_MIN` | `45` | healthcheck: реестр не обновлялся столько минут -> SIGTERM в PID 1, контейнер поднимается заново; `0` — выключить (workflow остановлен намеренно) |
 | `EXECUTIONS_DATA_MAX_AGE`, `EXECUTIONS_DATA_PRUNE_MAX_COUNT` | `168`, `1000` | prune экзекьюшенов; успешные не сохраняются вовсе (настройка workflow), `DB_SQLITE_VACUUM_ON_STARTUP=true` |
 
-Образ закреплён по версии (`n8nio/n8n:2.36.9`), не `latest`: обновление — осознанная смена тега с проверкой тика.
+Образ закреплён по версии (`n8nio/n8n:2.40.7`), не `latest`: обновление — осознанная смена тега с проверкой тика.
 
 **Watchdog.** Заклин записи в SQLite (`Timeout waiting for lock SqliteWriteConnectionMutex`) останавливает все тики, но `/healthz` и `/healthz/readiness` продолжают отвечать 200 (проверено на инциденте 2026-09-05: 29 часов простоя при «здоровом» контейнере). Единственный надёжный признак жизни конвейера — mtime реестра, который `Scan` переписывает каждый тик. Healthcheck проверяет его и после `RECAP_WATCHDOG_MIN` провалов подряд убивает PID 1; счётчик даёт свежему контейнеру столько же минут на первый тик. Docker сам unhealthy-контейнеры не перезапускает, поэтому самоубийство + `restart: unless-stopped`.
 

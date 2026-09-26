@@ -282,7 +282,7 @@ python3 deploy_workflows.py
 
 **Обновление**: GPU-хост — заменить `server.py`/`enroll.py`, `recap-asr-service.exe restart`;
 workflow — `deploy_workflows.py`; стек — `docker compose up -d` с новым compose.
-Образ n8n закреплён по версии в compose (`n8nio/n8n:2.36.9`), а не `latest`: новую версию ставить
+Образ n8n закреплён по версии в compose (`n8nio/n8n:2.40.7`), а не `latest`: новую версию ставить
 сменой тега, после пересоздания стека дождаться тика и проверить, что реестр обновился.
 
 **Watchdog и хранение экзекьюшенов**: healthcheck n8n проверяет не только `/healthz`, но и mtime
