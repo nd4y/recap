@@ -150,6 +150,7 @@ main_wf = {
                 {"parameterType": "formBinaryData", "name": "file", "inputDataFieldName": "data"},
                 {"name": "num_speakers", "value": "={{ $('Loop').item.json.type === 'call' ? '2' : '' }}"},
                 {"name": "diarize", "value": "={{ $('Loop').item.json.type === 'voice_note' ? 'false' : 'true' }}"},
+                {"name": "skip_short", "value": "={{ $('Loop').item.json.telegram ? 'false' : 'true' }}"},
             ]},
             "options": {"timeout": 900000},
         }, "id": "n5", "name": "ASR",
