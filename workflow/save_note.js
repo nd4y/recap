@@ -20,7 +20,10 @@ if (prev.skipped) {
   fs.writeFileSync(STATE0, JSON.stringify(reg0, null, 1));
   const it0 = $input.item;
   delete it0.binary;
-  it0.json = { rel: prev.meta.rel, skipped: true, tgText: '', note_path: '' };
+  const notice = 'Запись короче порога текущего ASR. Пришлите более длинную запись.';
+  it0.json = { rel: prev.meta.rel, skipped: true,
+    tgText: prev.meta.telegram ? notice : '', note_path: '',
+    telegram: prev.meta.telegram || null, title: 'Запись пропущена', transcriptDoc: notice };
   return it0;
 }
 
@@ -28,7 +31,7 @@ let data = null;
 const emptyCall = !prev.hasSpeech;
 if (emptyCall) {
   // LLM не вызывалась: речи в записи нет (короткие звонки шлагбауму и т.п.)
-  data = { title: 'Пустой звонок', summary: 'Речь не распознана.', action_items: [], participants: [] };
+  data = { title: prev.meta.telegram ? 'Речь не распознана' : 'Пустой звонок', summary: 'Речь не распознана.', action_items: [], participants: [] };
 } else {
   // LLM регулярно кладёт в строковые значения сырые переводы строк (markdown-список
   // в summary) — для JSON.parse это управляющие символы и невалидный документ.
@@ -131,17 +134,19 @@ reg[prev.meta.rel] = Object.assign(reg[prev.meta.rel] || {}, { status: 'noted', 
 fs.writeFileSync(STATE, JSON.stringify(reg, null, 1));
 
 const typeLabel = { meeting: 'Встреча', voice_note: 'Голосовая заметка', generic: 'Запись' };
-const tgTitle = prev.meta.type === 'call'
+const tgTitle = prev.meta.telegram
+  ? `${prev.meta.telegram.kind === 'video_note' ? 'Видеокружочек' : 'Голосовое сообщение'} - ${title}`
+  : prev.meta.type === 'call'
   ? `${prev.meta.direction === 'out' ? 'Исходящий звонок' : 'Входящий звонок'} — ${prev.meta.contact_raw || prev.meta.filename}`
   : `${typeLabel[prev.meta.type] || 'Запись'} — ${title}`;
 let tgText = `${tgTitle}\n${prev.meta.date || ''} ${prev.meta.time || ''}, ${fmtDur(prev.asrInfo.duration)}\n\n${data.summary || ''}`;
 if (actionsMd) tgText += `\n\nДействия:\n${(data.action_items || []).map((a) => `- ${a}`).join('\n')}`;
 if (tgText.length > 4000) tgText = tgText.slice(0, 3990) + '…';
-if (emptyCall) tgText = ''; // пустые звонки в Telegram не шлём (IF-нода отсеет)
+if (emptyCall && !prev.meta.telegram) tgText = ''; // пустые звонки в Telegram не шлём
 // отсечка по возрасту записи: старые (бэклог) — только в vault, без Telegram
 const maxAgeDays = parseFloat($env.RECAP_TG_MAX_AGE_DAYS || '2');
 const recTs = Date.parse(prev.meta.datetime || '');
-if (!isNaN(recTs) && (Date.now() - recTs) / 86400e3 > maxAgeDays) tgText = '';
+if (!prev.meta.telegram && !isNaN(recTs) && (Date.now() - recTs) / 86400e3 > maxAgeDays) tgText = '';
 
 const it = $input.item;
 delete it.binary;
@@ -150,6 +155,7 @@ it.json = {
   note_path: full,
   title,
   tgText,
+  telegram: prev.meta.telegram || null,
   transcriptDoc: `${tgTitle}\n${prev.meta.date || ''} ${prev.meta.time || ''}\n\n${prev.transcript}\n`,
 };
 return it;

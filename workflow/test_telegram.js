@@ -1,0 +1,82 @@
+// Dependency-free integration checks for Code nodes; no real files or Telegram messages.
+const assert = require('assert').strict;
+const fs = require('fs');
+const path = require('path');
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+const source = fs.readFileSync(path.join(__dirname, 'telegram_ingest.js'), 'utf8');
+const code = new AsyncFunction('require', '$env', 'console', source);
+const offset = '/data/state/telegram-offset.json';
+const dir = '/data/recordings/Telegram/';
+const env = { TELEGRAM_BOT_TOKEN: 'test-token', TELEGRAM_CHAT_ID: '42' };
+function harness(updates, broken = false) {
+  const store = new Map(), calls = [];
+  let failRename = false;
+  const fakeFs = {
+    existsSync: (p) => store.has(p),
+    readFileSync: (p) => store.get(p), mkdirSync() {},
+    writeFileSync: (p, v) => store.set(p, v),
+    renameSync(a, b) { if (failRename && b.endsWith('.ogg')) throw Error('disk'); store.set(b, store.get(a)); store.delete(a); },
+  };
+  const context = { helpers: { async httpRequest(o) {
+    calls.push(o);
+    const method = o.url.split('/').pop();
+    if (method === 'getUpdates') return { ok: true, result: updates.filter(u => u.update_id >= o.body.offset) };
+    if (method === 'getFile') {
+      if (broken) throw Error('secret URL test-token');
+      return { ok: true, result: { file_path: 'voice/file.ogg' } };
+    }
+    if (method === 'sendMessage') return { ok: true, result: { message_id: 100 } };
+    assert.equal(o.encoding, 'arraybuffer');
+    return Buffer.from([0, 255, 128, 1]);
+  } } };
+  return { store, calls, setFail(v) { failRename = v; },
+    run: () => code.call(context, n => n === 'fs' ? fakeFs : require(n), env, { warn() {} }) };
+}
+const message = (id, extra = {}) => ({ update_id: id, message: { chat: { type: 'private', id: 42 },
+  message_id: id, date: 1800000000, voice: { file_id: 'voice', file_size: 4 }, ...extra } });
+(async () => {
+  const h = harness([message(1, { forward_origin: { type: 'hidden_user', sender_user_name: 'Другой', date: 1 } }),
+    message(2, { voice: undefined, video_note: { file_id: 'video', file_size: 4 } }),
+    message(3, { chat: { type: 'private', id: 99 } }),
+    message(4, { voice: { file_id: 'large', file_size: 21 * 1024 * 1024 } })]);
+  await h.run();
+  assert.deepEqual(h.store.get(dir+'42_1.ogg'), Buffer.from([0, 255, 128, 1]));
+  assert(h.store.has(dir+'42_2.mp4'));
+  assert.equal(JSON.parse(h.store.get(dir+'42_1.ogg.json')).telegram.author, 'Другой');
+  assert.equal(h.calls.filter(c => c.url.endsWith('/getFile')).length, 2);
+  assert.equal(JSON.parse(h.store.get(offset)).offset, 5);
+  await h.run();
+  assert.equal(h.calls.filter(c => c.url.endsWith('/getFile')).length, 2);
+  // Crash after sidecar write, before media rename: replay repairs the download.
+  const disk = harness([message(1)]); disk.setFail(true); await disk.run();
+  assert(!disk.store.has(offset)); assert(!disk.store.has(dir+'42_1.ogg'));
+  disk.setFail(false); await disk.run(); assert(disk.store.has(dir+'42_1.ogg'));
+  // Permanent download failure is retried, then rejected without blocking later updates.
+  const bad = harness([message(1)], true);
+  for (let i = 0; i < 3; i++) { await bad.run(); assert(!bad.store.has(offset)); }
+  await bad.run(); assert.equal(JSON.parse(bad.store.get(offset)).offset, 2);
+  assert.equal(bad.calls.filter(c => c.url.endsWith('/sendMessage')).length, 1);
+  const help = harness([message(1, { voice: undefined, text: '/help' })]);
+  await help.run(); assert.equal(help.calls.at(-1).body.reply_parameters.message_id, 1);
+  const prompt = new AsyncFunction('$', '$json', '$env', fs.readFileSync(path.join(__dirname,'build_prompt.js'),'utf8'));
+  const result = await prompt(() => ({item:{json:{type:'voice_note', telegram:{kind:'voice',author:null}}}}),
+    {segments:[{start:0,text:'Завтра пришлю документы.'}],duration:2}, {});
+  assert(result.json.llmBody.messages[0].content.includes('Автор неизвестен'));
+  assert(!result.json.llmBody.messages[0].content.includes('Реплики «Я»'));
+  const save = new AsyncFunction('require','$','$json','$env','$input',fs.readFileSync(path.join(__dirname,'save_note.js'),'utf8'));
+  const written = new Map([['/data/state/registry.json','{}']]);
+  const saveFs = {existsSync:p=>written.has(p),readFileSync:p=>written.get(p),
+    writeFileSync:(p,v)=>written.set(p,v),mkdirSync(){}};
+  const prev = {meta:{type:'voice_note',rel:'Telegram/42_1.ogg',datetime:'2000-01-01T10:00',
+    date:'2000-01-01',time:'10:00',telegram:{message_id:1,kind:'voice'}},asrInfo:{duration:6},hasSpeech:false,transcript:''};
+  const executeSave = () => save(n=>n==='fs'?saveFs:require(n),()=>({item:{json:prev}}),{}, {}, {item:{json:{}}});
+  const noSpeech = await executeSave();
+  assert(noSpeech.json.tgText.includes('Речь не распознана'));
+  assert.equal(noSpeech.json.telegram.message_id,1);
+  prev.skipped='too_short';
+  const short = await executeSave();
+  assert(short.json.skipped);assert(short.json.tgText);assert(short.json.transcriptDoc);
+  for (const file of ['scan.js','save_note.js','prep_doc.js','telegram_ingest.js'])
+    new AsyncFunction(fs.readFileSync(path.join(__dirname,file),'utf8'));
+  console.log('PASS: voice, video note, hidden author, authorization, binary integrity, replay, partial write, retry exhaustion, help, speaker prompt, no speech, short recording, old forward reply, JS syntax');
+})().catch(e => { console.error(e); process.exit(1); });

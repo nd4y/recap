@@ -41,7 +41,7 @@ for (const p of files) {
       continue;
     }
   }
-  if (now - st.mtimeMs < 3 * 60e3) continue; // возможно, ещё дозаливается
+  if (!rel.startsWith('Telegram/') && now - st.mtimeMs < 3 * 60e3) continue; // возможно, ещё дозаливается
   candidates.push({ path: p, rel, size: st.size, mtimeMs: st.mtimeMs });
 }
 
@@ -63,10 +63,14 @@ function parseMeta(f) {
   const parts = f.rel.split('/');
   const sub = parts.length > 1 ? parts[0] : '';
   // все записи встреч (Jitsi, Teams и прочие) лежат в одном подкаталоге Meetings
-  const typeMap = { CallRecords: 'call', Meetings: 'meeting', Voice: 'voice_note' };
+  const typeMap = { CallRecords: 'call', Meetings: 'meeting', Voice: 'voice_note', Telegram: 'voice_note' };
   const type = typeMap[sub] || 'generic';
   const base = path.basename(f.rel).replace(/\.[^.]+$/, '');
   const meta = { type, filename: base };
+  if (sub === 'Telegram') {
+    const sidecar = JSON.parse(fs.readFileSync(f.path + '.json', 'utf8'));
+    meta.telegram = sidecar.telegram;
+  }
   const m = base.match(/^(.*?)[ _]?(\d{4}-\d{2}-\d{2})_(\d{2})(\d{2})(\d{2})_(out|inc)$/);
   if (type === 'call' && m) {
     meta.date = m[2];
@@ -83,7 +87,7 @@ function parseMeta(f) {
     const iso = base.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2})_(\d{2})_(\d{2})/);
     const ms = iso
       ? Date.UTC(+iso[1], +iso[2] - 1, +iso[3], +iso[4], +iso[5], +iso[6])
-      : f.mtimeMs;
+      : (meta.telegram && meta.telegram.received_date ? meta.telegram.received_date * 1000 : f.mtimeMs);
     const lp = localParts(ms);
     meta.date = lp.date;
     meta.time = lp.time;
