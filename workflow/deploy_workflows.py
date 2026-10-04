@@ -221,7 +221,7 @@ main_wf = {
             "method": "POST",
             "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
             "sendBody": True, "specifyBody": "json",
-            "jsonBody": "={{ JSON.stringify({chat_id: $env.TELEGRAM_CHAT_ID, text: $json.tgText, ...($json.telegram ? {reply_parameters: {message_id: $json.telegram.message_id, allow_sending_without_reply: true}} : {})}) }}",
+            "jsonBody": "={{ JSON.stringify({chat_id: $env.TELEGRAM_CHAT_ID, text: $json.tgText, reply_parameters: $json.telegram ? {message_id: $json.telegram.message_id, allow_sending_without_reply: true} : undefined}) }}",
             "options": {"timeout": 30000},
         }, "id": "n10", "name": "TG message",
          "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [1580, 0],
