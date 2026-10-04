@@ -31,6 +31,7 @@
 | `language` | `ru` | GigaAM только русский |
 | `diarize` | `true` | выключить диаризацию: `false` |
 | `num_speakers` | — | подсказка (для звонков — 2) |
+| `skip_short` | `true` | `false` распознаёт короткие записи, обходя `RECAP_MIN_DURATION`; используется для сообщений Telegram |
 
 Ответ: `{text, language, duration, segments[{start,end,text,speaker}],
 speakers[{label,is_owner,owner_score,talk_time}], diarization, processing_time}`.

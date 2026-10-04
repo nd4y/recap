@@ -412,6 +412,7 @@ async def transcribe(
     diarize_flag: str = Form("true", alias="diarize"),
     # str, не int: n8n шлёт multipart-поля строками, пустая строка не должна давать 422
     num_speakers: str = Form(None),
+    skip_short: str = Form("true"),
 ):
     t0 = time.time()
     suffix = os.path.splitext(file.filename or "audio.m4a")[1] or ".m4a"
@@ -431,7 +432,7 @@ async def transcribe(
     M_STAGE.labels("decode").inc(time.time() - t0)
     duration = len(audio) / SAMPLE_RATE
 
-    if MIN_DURATION and duration < MIN_DURATION:
+    if str(skip_short).lower() not in ("false", "0", "no") and MIN_DURATION and duration < MIN_DURATION:
         log.info("skipped %s: %.1fs < %.1fs", file.filename, duration, MIN_DURATION)
         M_REQUESTS.labels("skipped").inc()
         M_AUDIO.labels("skipped").inc(duration)

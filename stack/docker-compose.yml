@@ -79,8 +79,12 @@ services:
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_MODEL=${LLM_MODEL:-gemma3-recap}
       - LLM_PROXY=${LLM_PROXY:-}
+      # Optional CA bundle for a private HTTPS LLM endpoint (mounted under state).
+      - NODE_EXTRA_CA_CERTS=${LLM_CA_CERT_PATH:-}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    extra_hosts:
+      - "${LLM_HOST_MAPPING:-localhost:127.0.0.1}"
     volumes:
       - ${N8N_DATA_DIR:?host dir for n8n data}/n8n:/data/n8n
       - ${N8N_DATA_DIR}/state:/data/state
