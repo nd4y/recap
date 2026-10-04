@@ -69,14 +69,32 @@ const message = (id, extra = {}) => ({ update_id: id, message: { chat: { type: '
     writeFileSync:(p,v)=>written.set(p,v),mkdirSync(){}};
   const prev = {meta:{type:'voice_note',rel:'Telegram/42_1.ogg',datetime:'2000-01-01T10:00',
     date:'2000-01-01',time:'10:00',telegram:{message_id:1,kind:'voice'}},asrInfo:{duration:6},hasSpeech:false,transcript:''};
-  const executeSave = () => save(n=>n==='fs'?saveFs:require(n),()=>({item:{json:prev}}),{}, {}, {item:{json:{}}});
+  const executeSave = (response = {}, context = {}) => save.call(context, n=>n==='fs'?saveFs:require(n),()=>({item:{json:prev}}),response, {}, {item:{json:{}}});
   const noSpeech = await executeSave();
   assert(noSpeech.json.tgText.includes('Речь не распознана'));
   assert.equal(noSpeech.json.telegram.message_id,1);
   prev.skipped='too_short';
   const short = await executeSave();
   assert(short.json.skipped);assert(short.json.tgText);assert(short.json.transcriptDoc);
+  prev.skipped = null; prev.hasSpeech = true; prev.t0 = Date.now() - 1000;
+  prev.meta.size = 1048576; prev.asrInfo.processing_time = 2;
+  prev.llmBody = { messages: [] };
+  const response = (summary, usage) => ({usage,choices:[{message:{content:JSON.stringify({title:'Проверка',summary,action_items:[],participants:[]})}}]});
+  const measured = await executeSave(response('Задача согласована.',{prompt_tokens:100,completion_tokens:20}));
+  assert(measured.json.tgText.includes('Токены LLM: 120 (вход 100, выход 20)'));
+  assert(measured.json.tgText.includes('Исходный файл: 1,00 МиБ'));
+  let registry = JSON.parse(written.get('/data/state/registry.json'))[prev.meta.rel];
+  assert.equal(registry.llm_total_tokens,120); assert.equal(registry.file_bytes,1048576);
+  assert(registry.processing_seconds >= 3);
+  const unreported = await executeSave(response('Задача согласована.'));
+  assert(unreported.json.tgText.includes('API не сообщил расход'));
+  const long = await executeSave(response('x'.repeat(5000),{prompt_tokens:10,completion_tokens:5}));
+  assert(long.json.tgText.length <= 4000); assert(long.json.tgText.includes('Токены LLM: 15'));
+  await executeSave({usage:{prompt_tokens:100,completion_tokens:5},choices:[{message:{content:'broken JSON'}}]},
+    {helpers:{httpRequest:async()=>response('Повторный ответ.',{prompt_tokens:200,completion_tokens:10})}});
+  registry = JSON.parse(written.get('/data/state/registry.json'))[prev.meta.rel];
+  assert.equal(registry.llm_total_tokens,315); assert(registry.llm_usage_complete);
   for (const file of ['scan.js','save_note.js','prep_doc.js','telegram_ingest.js'])
     new AsyncFunction(fs.readFileSync(path.join(__dirname,file),'utf8'));
-  console.log('PASS: voice, video note, hidden author, authorization, binary integrity, replay, partial write, retry exhaustion, help, speaker prompt, no speech, short recording, old forward reply, JS syntax');
+  console.log('PASS: Telegram intake, replay, speaker prompt, replies, resource footer, provider usage, retry token totals, missing usage, long message limit, JS syntax');
 })().catch(e => { console.error(e); process.exit(1); });
